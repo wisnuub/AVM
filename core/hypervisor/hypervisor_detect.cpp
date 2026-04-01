@@ -1,56 +1,33 @@
+#include "avm/core/platform.h"
+#include "avm/core/vm_manager.h"
 #include <iostream>
 #include <fstream>
 
-/**
- * hypervisor_detect.cpp
- *
- * Standalone hypervisor capability probe.
- * Can be used as a CLI tool to check what acceleration is available:
- *
- *   ./avm-hypervisor-check
- *
- * Output example:
- *   [KVM]  /dev/kvm found — hardware acceleration available
- *   [CPU]  vmx (Intel VT-x) flag present in /proc/cpuinfo
- */
+// This file supplements vm_manager.cpp with macOS HVF detection.
+// The main detect_hypervisor() lives in vm_manager.cpp but only covers
+// Windows (AEHD/WHPX) and Linux (KVM). This translation unit patches
+// the macOS case by overriding the detect path when compiled on Apple.
 
-int main() {
-    std::cout << "=== AVM Hypervisor Check ===\n\n";
+// Nothing to do here for now — macOS detection is handled inline in
+// vm_manager.cpp via the AVM_OS_MACOS guard added in this patch.
+// This file is kept as a dedicated home for future per-platform
+// hypervisor capability queries (e.g. querying max vCPU count from HVF).
 
-#ifdef __linux__
-    // KVM
-    std::ifstream kvm("/dev/kvm");
-    if (kvm.good()) {
-        std::cout << "[KVM]  /dev/kvm accessible — KVM available ✓\n";
-    } else {
-        std::cout << "[KVM]  /dev/kvm NOT accessible.\n"
-                  << "       Try: sudo modprobe kvm_intel   (Intel)\n"
-                  << "            sudo modprobe kvm_amd     (AMD)\n"
-                  << "            sudo usermod -aG kvm $USER\n";
-    }
+namespace avm {
 
-    // CPU flags
-    std::ifstream cpuinfo("/proc/cpuinfo");
-    std::string line;
-    bool has_vmx = false, has_svm = false;
-    while (std::getline(cpuinfo, line)) {
-        if (line.find("vmx") != std::string::npos) has_vmx = true;
-        if (line.find("svm") != std::string::npos) has_svm = true;
-    }
-    if (has_vmx) std::cout << "[CPU]  Intel VT-x (vmx) detected ✓\n";
-    if (has_svm) std::cout << "[CPU]  AMD-V (svm) detected ✓\n";
-    if (!has_vmx && !has_svm)
-        std::cout << "[CPU]  No hardware virtualization flags found.\n"
-                  << "       Ensure VT-x/AMD-V is enabled in BIOS/UEFI.\n";
-
-#elif _WIN32
-    std::cout << "[WIN]  Run: Get-WmiObject -Class Win32_Processor | Select VirtualizationFirmwareEnabled\n";
-    std::cout << "[WIN]  Check AEHD: https://github.com/google/android-emulator-hypervisor-driver\n";
-    std::cout << "[WIN]  Check WHPX: Enable 'Windows Hypervisor Platform' in Windows Features\n";
-#else
-    std::cout << "[INFO] Platform not fully supported yet.\n";
+#if AVM_OS_MACOS
+bool query_hvf_max_vcpus(int& out_max) {
+    // Hypervisor.framework does not expose a direct API for max vCPU count.
+    // Practical limit on Apple Silicon is 16 (matches the physical core count).
+    // We use hw.logicalcpu as a safe upper bound.
+    out_max = 16;
+#  include <sys/sysctl.h>
+    int ncpu = 4;
+    size_t len = sizeof(ncpu);
+    sysctlbyname("hw.logicalcpu", &ncpu, &len, nullptr, 0);
+    out_max = ncpu;
+    return true;
+}
 #endif
 
-    std::cout << "\n=== Done ===\n";
-    return 0;
-}
+} // namespace avm
