@@ -1,52 +1,42 @@
 #pragma once
 #include <cstdint>
-#include <string>
+#include <functional>
 
-namespace avm {
+namespace avm::input {
 
-enum class InputEventType {
-    TouchDown,
-    TouchUp,
-    TouchMove,
-    KeyDown,
-    KeyUp,
-    MouseMove,
-    MouseScroll,
-    GamepadButton,
-    GamepadAxis
+// A single synthesized Android touch event sent to the guest.
+struct TouchEvent {
+    enum class Type : uint8_t { DOWN, MOVE, UP };
+    Type     type;
+    int32_t  slot;   // multitouch slot (0-9)
+    float    x, y;   // normalized [0..1] relative to screen
 };
 
-struct InputEvent {
-    InputEventType type;
-    int32_t  x = 0;     // touch X (pixels) or key code
-    int32_t  y = 0;     // touch Y (pixels)
-    float    value = 0; // axis value, scroll delta
-    uint32_t id   = 0;  // touch pointer ID, gamepad button ID
+// A synthesized Android key event (for gamepad / keyboard passthrough).
+struct KeyEvent {
+    enum class Action : uint8_t { DOWN, UP };
+    Action   action;
+    int32_t  android_keycode;  // e.g. AKEYCODE_BUTTON_A
 };
 
-/**
- * InputBridge — captures host input events and translates them
- * into Android touch/key events, injected via the virtio-input
- * device or ADB.
- *
- * Also responsible for applying the active keymapper profile:
- * e.g., W key → swipe up gesture, left mouse → tap at (x, y).
- */
+// Callback types the bridge fires when events are ready to inject.
+using TouchCallback = std::function<void(const TouchEvent&)>;
+using KeyCallback   = std::function<void(const KeyEvent&)>;
+
+// InputBridge — translates host SDL2 events into Android touch/key events
+// and dispatches them via ADB or virtio-input depending on transport.
 class InputBridge {
 public:
     virtual ~InputBridge() = default;
 
-    virtual bool initialize(int adb_port) = 0;
-    virtual void shutdown() = 0;
+    virtual void set_touch_callback(TouchCallback cb) = 0;
+    virtual void set_key_callback(KeyCallback cb)     = 0;
 
-    /** Load a keymapper profile from a JSON file. */
-    virtual bool load_profile(const std::string& profile_path) = 0;
+    // Feed a raw SDL_Event from the main loop.
+    virtual void handle_sdl_event(const void* sdl_event) = 0;
 
-    /** Inject a pre-built input event directly. */
-    virtual void inject(const InputEvent& event) = 0;
-
-    /** Poll and process host input events — call once per frame. */
-    virtual void poll() = 0;
+    // Screen dimensions needed to convert pixel coords → normalized.
+    virtual void set_screen_size(int width, int height) = 0;
 };
 
-} // namespace avm
+} // namespace avm::input
