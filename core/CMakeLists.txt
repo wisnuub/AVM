@@ -1,8 +1,9 @@
 set(AVM_CORE_SOURCES
     vm_manager.cpp
-    config.cpp
     android_version.cpp
     image_manager.cpp
+    profile.cpp
+    fps_limiter.cpp
     hypervisor/hypervisor_detect.cpp
 )
 
@@ -12,16 +13,17 @@ target_include_directories(avm_core PUBLIC
     ${CMAKE_SOURCE_DIR}/include
 )
 
-# macOS: link Hypervisor.framework
+target_compile_features(avm_core PUBLIC cxx_std_17)
+
+# macOS: Hypervisor.framework + CoreFoundation
 if(APPLE)
     target_link_libraries(avm_core PUBLIC
         "-framework Hypervisor"
+        "-framework CoreFoundation"
     )
-    # Apple Silicon — resolve sysctlbyname for CPU count query
-    target_link_libraries(avm_core PUBLIC "-framework CoreFoundation")
 endif()
 
-# Windows: Winsock for QMP TCP
+# Windows: Winsock
 if(WIN32)
     target_link_libraries(avm_core PUBLIC ws2_32)
 endif()
