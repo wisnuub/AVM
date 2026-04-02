@@ -1,0 +1,18 @@
+{
+  "name": "pubg",
+  "description": "PUBG Mobile — 90fps Smooth Extreme, ROG Phone 9 Pro spoof",
+  "android": 14,
+  "memory_mb": 8192,
+  "cores": 6,
+  "target_fps": 90,
+  "fps_cap_mode": "precise",
+  "gpu_backend": "vulkan",
+  "gapps": true,
+  "spoof_profile": "rog9pro",
+  "notes": [
+    "PUBG Mobile allows 90fps on ROG Phone 9 Pro at Smooth + Extreme setting.",
+    "For 120fps: PUBG's 120fps mode is available on ROG 9 Pro but requires",
+    "the 120fps option to appear in-game settings after first launch.",
+    "Set target_fps to 120 and fps_cap_mode to precise for that."
+  ]
+}

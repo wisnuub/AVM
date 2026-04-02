@@ -1,0 +1,17 @@
+{
+  "name": "honkai-sr",
+  "description": "Honkai: Star Rail — 60fps High, Samsung S25 Ultra spoof",
+  "android": 14,
+  "memory_mb": 10240,
+  "cores": 6,
+  "target_fps": 60,
+  "fps_cap_mode": "precise",
+  "gpu_backend": "vulkan",
+  "gapps": true,
+  "spoof_profile": "s25ultra",
+  "notes": [
+    "Honkai SR caps at 60fps but Samsung S25 Ultra profile unlocks",
+    "High graphics tier (vs Medium on unknown devices).",
+    "Needs 10 GB RAM for High textures without hitching."
+  ]
+}

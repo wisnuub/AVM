@@ -1,0 +1,16 @@
+{
+  "name": "codm",
+  "description": "Call of Duty Mobile — 120fps, Max graphics, ROG Phone 9 Pro spoof",
+  "android": 14,
+  "memory_mb": 8192,
+  "cores": 6,
+  "target_fps": 120,
+  "fps_cap_mode": "precise",
+  "gpu_backend": "vulkan",
+  "gapps": true,
+  "spoof_profile": "rog9pro",
+  "notes": [
+    "CoD Mobile explicitly whitelists ROG Phone 8/9 Pro for 120fps Max graphics.",
+    "This is the most aggressive profile — requires strong host GPU."
+  ]
+}

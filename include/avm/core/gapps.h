@@ -1,35 +1,35 @@
 #pragma once
 #include <filesystem>
 #include <string>
+#include <vector>
 
 namespace avm {
 
 /**
  * GAppsConfig — runtime configuration for Google Play services support.
- *
- * When gapps_enabled is true, AVM will:
- *   1. Verify the system image contains the expected priv-app GApps directories.
- *   2. Pass additional QEMU -prop flags to ensure ro.build.tags=release-keys
- *      and other CTS-passing properties are set at boot time.
- *   3. Expose /dev/binder and /dev/ashmem with the permissions GMS Core expects.
- *   4. Reserve extra RAM headroom (gapps needs ~512 MB above base Android).
  */
 struct GAppsConfig {
     bool gapps_enabled = false;
 
-    // Path to a JSON fingerprint file for Play Integrity spoofing.
-    // If empty, uses the built-in Pixel 8 Pro fingerprint.
     std::filesystem::path fingerprint_file;
 
-    // Whether to apply SafetyNet property overrides at VM boot via -prop.
     bool spoof_fingerprint = true;
 
-    // Which safety profile to spoof.
-    // "pixel8pro" = Google Pixel 8 Pro (AD1A.240905.004) — default
-    // "pixel7"    = Google Pixel 7  (TP1A.221005.002)
+    // Which device profile to spoof.
+    //
+    // Safety-first (Play Integrity / banking apps):
+    //   pixel8pro   — Google Pixel 8 Pro    (default)
+    //   pixel9pro   — Google Pixel 9 Pro
+    //   pixel7pro   — Google Pixel 7 Pro
+    //   pixelfold   — Google Pixel Fold
+    //
+    // High-FPS gaming (120/144 Hz unlock in PUBG, Genshin, CoD, MLBB):
+    //   rog9pro     — ASUS ROG Phone 9 Pro  ← RECOMMENDED for gaming
+    //   rog8pro     — ASUS ROG Phone 8 Pro  (wider Android 14 compat)
+    //   s25ultra    — Samsung Galaxy S25 Ultra
+    //   s24ultra    — Samsung Galaxy S24 Ultra
     std::string spoof_profile = "pixel8pro";
 
-    // Extra RAM to reserve for GMS Core (MB). Added on top of profile base RAM.
     int extra_ram_mb = 512;
 };
 
@@ -50,34 +50,25 @@ struct DeviceFingerprint {
 
 /**
  * Returns the built-in spoofing fingerprint for the given profile name.
+ *
+ * Profile names:
+ *   pixel8pro, pixel9pro, pixel7pro, pixelfold   — Google Pixel series
+ *   rog9pro, rog8pro                             — ASUS ROG Phone series
+ *   s25ultra, s24ultra                           — Samsung Galaxy S-Ultra series
+ *
  * Throws std::invalid_argument if profile is unknown.
  */
 DeviceFingerprint get_builtin_fingerprint(const std::string& profile);
 
 /**
  * Loads a fingerprint from a JSON file.
- * JSON schema:
- * {
- *   "brand": "google",
- *   "device": "husky",
- *   "manufacturer": "Google",
- *   "model": "Pixel 8 Pro",
- *   "name": "husky",
- *   "fingerprint": "google/husky/husky:14/AD1A.240905.004/12117344:user/release-keys",
- *   "description": "husky-user 14 AD1A.240905.004 12117344 release-keys",
- *   "version_release": "14",
- *   "version_sdk": 34
- * }
  */
 DeviceFingerprint load_fingerprint_file(const std::filesystem::path& path);
 
 /**
- * Builds the list of QEMU -prop arguments needed to spoof the device identity
- * at VM boot time. These are passed as:
- *   -prop ro.product.model="Pixel 8 Pro" -prop ro.build.fingerprint="..." ...
- *
- * @param fp     The fingerprint to apply.
- * @param out    Output vector — new -prop pairs are appended.
+ * Builds QEMU -prop entries for device identity spoofing.
+ * Includes both ro.product.* and ro.product.system.*/ro.product.vendor.*
+ * partitions, which games cross-check against the base model.
  */
 void build_gapps_qemu_props(
     const DeviceFingerprint& fp,
@@ -85,12 +76,21 @@ void build_gapps_qemu_props(
 );
 
 /**
- * Verifies that the system image at path appears to contain GApps
- * (i.e., has Phonesky.apk / PrebuiltGmsCore.apk in priv-app).
- * Returns true if GApps are detected, false otherwise.
+ * Appends additional QEMU -prop entries that unlock high-FPS modes
+ * in specific games for supported device profiles (rog9pro, s25ultra, etc.).
  *
- * Note: this is a lightweight heuristic check (file size + presence),
- * not a cryptographic verification.
+ * Call AFTER build_gapps_qemu_props() to layer on top of the base identity.
+ *
+ * @param profile  Profile name (e.g. "rog9pro", "s25ultra")
+ * @param out      Vector to append props to
+ */
+void build_highfps_qemu_props(
+    const std::string& profile,
+    std::vector<std::pair<std::string, std::string>>& out
+);
+
+/**
+ * Verifies the image contains GApps (size heuristic).
  */
 bool verify_gapps_image(const std::filesystem::path& image_path);
 

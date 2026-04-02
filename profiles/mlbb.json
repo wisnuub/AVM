@@ -1,0 +1,16 @@
+{
+  "name": "mlbb",
+  "description": "Mobile Legends Bang Bang — 120fps Ultra, ROG Phone 9 Pro spoof",
+  "android": 14,
+  "memory_mb": 6144,
+  "cores": 4,
+  "target_fps": 120,
+  "fps_cap_mode": "precise",
+  "gpu_backend": "vulkan",
+  "gapps": true,
+  "spoof_profile": "rog9pro",
+  "notes": [
+    "MLBB has a dedicated 120fps Ultra mode for ROG phones.",
+    "Lighter than PUBG/CoD — works well with 6 GB RAM."
+  ]
+}
