@@ -1,279 +1,236 @@
 # AVM — Android Virtual Machine
 
-A gaming-focused Android emulator for PC, built from scratch on top of QEMU with hardware virtualization (KVM / HVF / AEHD / WHPX) and GPU acceleration via gfxstream + Vulkan.
+> Near-native Android on PC via hardware virtualization (HVF/KVM/WHPX) + GPU forwarding.
 
-> ⚠️ This project is in active early development. Contributions and ideas are welcome.
-
----
-
-## Goals
-
-- Near-native (90–100%) performance for Android games on PC
-- Full hardware-accelerated GPU rendering via Vulkan/OpenGL ES forwarding (gfxstream)
-- Low-latency keyboard, mouse, and gamepad input remapping
-- Per-game profiles with keymapper, FPS cap, and resource overrides
-- Android version selector (Android 10–15, API 29–35)
-- Multi-instance support for running multiple game sessions simultaneously
+[![License: MIT](https://img.shields.io/badge/License-MIT-teal.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey)](#prerequisites)
+[![Phase](https://img.shields.io/badge/phase-6-blue)](#roadmap)
 
 ---
 
-## Architecture Overview
+## Architecture
 
 ```
-┌───────────────────────────────────────────────────┐
-│        HOST (Windows / Linux / macOS)         │
-│                                               │
-│  ┌─────────────────────────────────────┐  │
-│  │        AVM Host Process                │  │
-│  │  CLI / Profile loader / ImageManager  │  │
-│  │  Input bridge (SDL2 → ADB/virtio)    │  │
-│  │  FPS limiter + Overlay UI             │  │
-│  └─────────────┬──────────────────────┘  │
-│                 │ virtio / gfxstream          │
-│  ┌─────────────┴──────────────────────┐  │
-│  │         QEMU Virtual Machine           │  │
-│  │   Android (goldfish kernel)            │  │
-│  │   GPU: virtio-gpu / gfxstream guest    │  │
-│  └─────────────────────────────────────┘  │
-│                                               │
-│  Hypervisor: KVM • HVF • AEHD • WHPX        │
-└───────────────────────────────────────────────┐
+┌─────────────────────────────────────────────────────────┐
+│                     AVM Host Process                    │
+│                                                         │
+│  ┌──────────┐  ┌──────────┐  ┌──────────────────────┐  │
+│  │  SDL2    │  │  Overlay │  │  Profile / GApps     │  │
+│  │  Window  │  │  (HUD)   │  │  Config Engine       │  │
+│  └────┬─────┘  └────┬─────┘  └──────────┬───────────┘  │
+│       └─────────────┴──────────────────┬┘              │
+│                                        ▼                │
+│  ┌─────────────────────────────────────────────────┐   │
+│  │              QEMU / Virtual Machine             │   │
+│  │   CPU: HVF (macOS) / KVM (Linux) / WHPX (Win)  │   │
+│  │   GPU: MoltenVK → gfxstream → virtio-gpu        │   │
+│  │   RAM: configurable  │  vCPUs: configurable      │   │
+│  └─────────────────────────────────────────────────┘   │
+│                         │                               │
+│  ┌──────────────────────▼──────────────────────────┐   │
+│  │              Android Guest (ARM64)              │   │
+│  │   GApps (Phonesky/GMS Core) + SafetyNet spoof   │   │
+│  │   virtio-input │ virtio-net │ virtio-gpu         │   │
+│  └─────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────┘
 ```
 
-### Key Layers
+---
 
-| Layer | Responsibility |
+## Prerequisites
+
+| Platform | Requirements |
 |---|---|
-| **Hypervisor** | Near-native CPU execution (KVM / HVF / AEHD / WHPX) |
-| **QEMU + goldfish kernel** | Android VM base — virtual hardware, sensors, networking |
-| **gfxstream / virtio-gpu** | Serializes GPU API calls from guest → host |
-| **Host GPU renderer** | Decodes GPU commands, renders via host Vulkan / Metal / DX12 |
-| **Input bridge** | Maps keyboard / mouse / gamepad → Android touch events |
-| **Profile system** | Per-game resource + keymapper + FPS config |
-| **AVM Overlay UI** | Keymapper editor, FPS display, multi-instance manager |
-
----
-
-## Project Structure
-
-```
-AVM/
-├── core/                    # VM lifecycle, hypervisor, version selector
-│   ├── vm_manager.cpp         # QEMU launch, QMP, ADB wait
-│   ├── android_version.cpp    # Version metadata table + parser
-│   ├── image_manager.cpp      # Image validation + arch compat
-│   ├── profile.cpp            # Per-game profile load/save/apply
-│   ├── fps_limiter.cpp        # Precise sleep+spin FPS limiter
-│   └── hypervisor/            # Platform hypervisor helpers
-├── gpu/                     # GPU forwarding pipeline
-│   ├── gfxstream/             # Guest-side gfxstream encoder
-│   ├── host_renderer/         # Host Vulkan / OpenGL decoder
-│   └── angle/                 # ANGLE OpenGL ES → Vulkan
-├── input/                   # Input bridge and event translation
-│   ├── input_bridge_sdl.cpp   # SDL2 → touch/key events
-│   ├── input_bridge_adb.cpp   # ADB sendevent transport
-│   ├── adb_injector.cpp       # ADB command runner
-│   ├── gamepad_bridge_sdl.cpp # SDL2 gamepad → Android input
-│   └── virtio_input.cpp       # virtio-input socket (Linux/macOS)
-├── overlay/                 # AVM Overlay UI
-│   ├── overlay.cpp
-│   ├── fps_overlay.cpp
-│   └── keymapper_editor.cpp
-├── include/avm/             # Public headers
-├── src/
-│   └── main.cpp               # CLI entry point
-├── docs/                    # Phase docs, setup guides
-├── scripts/
-│   ├── bootstrap-macos.sh     # One-shot macOS setup + codesign
-│   └── bootstrap-windows.ps1  # One-shot Windows setup
-└── CMakeLists.txt
-```
+| **macOS (Apple Silicon / Intel)** | macOS 11+, Xcode CLI tools, `brew install cmake ninja sdl2 sdl2_ttf qemu molten-vk` |
+| **Linux** | KVM-capable kernel, `apt install cmake ninja-build libsdl2-dev qemu-system-aarch64` |
+| **Windows** | Windows 10 1903+, Hyper-V or AEHD, Visual Studio 2022, vcpkg |
 
 ---
 
 ## Quick Start
 
-### macOS (Apple Silicon or Intel)
+### macOS (Apple Silicon recommended)
 
 ```bash
 git clone https://github.com/wisnuub/AVM.git && cd AVM
-chmod +x scripts/bootstrap-macos.sh
-./scripts/bootstrap-macos.sh
-# Binary is at ./build/avm, already codesigned with Hypervisor entitlement
-```
+bash scripts/bootstrap-macos.sh
 
-> ⚠️ **Apple Silicon only**: You must use an **ARM64** Android image.
-> x86\_64 images will not run under `Hypervisor.framework` on M1/M2/M3.
+# Pull Android 14 + GApps (Play Store)
+python3 tools/avm-image-pull.py --android 14 --flavor gapps
 
-### Windows
-
-```powershell
-# Run as Administrator
-git clone https://github.com/wisnuub/AVM.git; cd AVM
-.\scripts\bootstrap-windows.ps1
-# Binary: .\build\RelWithDebInfo\avm.exe
+# Boot
+./build/avm --android 14 \
+  --image ~/.config/avm/images/android14-arm64-gapps/system.img \
+  --gapps
 ```
 
 ### Linux
 
 ```bash
-sudo apt install cmake ninja-build libsdl2-dev libsdl2-ttf-dev qemu-system-x86
 git clone https://github.com/wisnuub/AVM.git && cd AVM
-cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
-cmake --build build
+bash scripts/bootstrap.sh
+python3 tools/avm-image-pull.py --android 14 --flavor gapps
+./build/avm --android 14 \
+  --image ~/.config/avm/images/android14-arm64-gapps/system.img \
+  --gapps
+```
+
+### Windows (PowerShell)
+
+```powershell
+git clone https://github.com/wisnuub/AVM.git; cd AVM
+.\scripts\bootstrap-windows.ps1
+python tools\avm-image-pull.py --android 14 --flavor gapps
+.\build\avm.exe --android 14 `
+  --image "$env:APPDATA\AVM\images\android14-arm64-gapps\system.img" `
+  --gapps
 ```
 
 ---
 
 ## Usage
 
-```bash
-# Basic boot
-avm --android 14 --image android14-arm64.img
+```
+avm [OPTIONS]
 
-# Specify resources explicitly
-avm --android 13 --image android13.img --memory 6144 --cores 6
+Core:
+  --android <ver>       Android version: 12, 13, 14 (default: 14)
+  --image <path>        Path to system.img
+  --memory <MB>         RAM in MB (default: auto per version)
+  --cores <n>           vCPU count (default: 4)
+  --gpu <backend>       vulkan | opengl | software (default: vulkan)
 
-# Unlock FPS (bypass Android vsync cap)
-avm --android 14 --image android14.img --fps-unlock
+GApps & Play Integrity:
+  --gapps               Enable GApps mode (Play Store, GMS Core)
+  --spoof-profile <id>  Fingerprint profile: pixel8pro | pixel7pro | pixelfold
+  --fingerprint <file>  Custom fingerprint JSON file
 
-# Load a per-game profile
-avm --profile genshin --image android14.img
+Performance:
+  --fps <n>             Target FPS cap (0 = unlimited, default: 60)
+  --fps-unlock          Unlimited FPS + vsync override
 
-# See all supported Android versions
-avm --list-versions
+Profiles:
+  --profile <name>      Load per-game profile (name or path to .json)
+  --list-profiles       List saved profiles
 
-# See saved profiles
-avm --list-profiles
+Info:
+  --list-versions       Show supported Android versions
+  --version             Show AVM version
 ```
 
-### Android Version Selector
+### Android Versions
 
-All of the following select Android 13:
+| Version | API | Min RAM | Notes |
+|---|---|---|---|
+| Android 14 | 34 | 4 GB (6 GB with GApps) | Recommended |
+| Android 13 | 33 | 3 GB (4 GB with GApps) | Stable |
+| Android 12 | 32 | 2 GB | Legacy |
+
+---
+
+## GApps & Google Play Store
+
+AVM supports Google Play Store via **OpenGApps pico** injection.
+
 ```bash
-avm --android 13
-avm --android android13
-avm --android API33
-avm --android tiramisu
+# Download image with GApps pre-injected
+python3 tools/avm-image-pull.py --android 14 --flavor gapps
+
+# List downloaded images
+python3 tools/avm-image-pull.py --check
+
+# Boot with GApps enabled
+avm --android 14 --image <img> --gapps
 ```
 
-| Version    | Code Name         | API | Min Kernel | Min RAM |
-|------------|-------------------|-----|------------|---------|
-| Android 10 | Q                 | 29  | 4.14       | 2 GB    |
-| Android 11 | R                 | 30  | 4.19       | 3 GB    |
-| Android 12 | S                 | 31  | 5.4        | 4 GB    |
-| Android 12L| Sv2               | 32  | 5.10       | 4 GB    |
-| Android 13 | Tiramisu          | 33  | 5.15       | 4 GB    |
-| Android 14 | Upside Down Cake  | 34  | 6.1        | 6 GB    |
-| Android 15 | Vanilla Ice Cream | 35  | 6.6        | 6 GB    |
+Sign in with your Google account after first boot to access the Play Store.
+
+---
+
+## SafetyNet / Play Integrity
+
+AVM spoofs the device fingerprint at boot time so Play Services sees a real certified device (Pixel 8 Pro by default).
+
+| Check | Status |
+|---|---|
+| MEETS_BASIC_INTEGRITY | ✅ Passes |
+| MEETS_DEVICE_INTEGRITY | ✅ Passes |
+| MEETS_STRONG_INTEGRITY | ❌ Not possible (requires real TEE) |
+
+Most games check BASIC + DEVICE only. For apps that require STRONG, download **PlayIntegrityFix**:
+
+```bash
+# Download PlayIntegrityFix.zip → scripts/
+bash scripts/safetynet-patch.sh
+```
+
+See [`docs/phase6-gapps-safetynet.md`](docs/phase6-gapps-safetynet.md) for full details.
 
 ---
 
 ## Per-Game Profiles
 
-Profiles are JSON files in `~/.config/avm/profiles/` (Linux/macOS) or `%APPDATA%\AVM\profiles\` (Windows).
+Profiles live in `~/.config/avm/profiles/` (Linux/macOS) or `%APPDATA%\AVM\profiles\` (Windows).
 
 ```json
 {
   "name": "genshin",
-  "package_name": "com.miHoYo.GenshinImpact",
-  "display_name": "Genshin Impact",
-  "keymapper": "~/.config/avm/keymaps/genshin.json",
-  "android_version": 34,
+  "android": 14,
   "memory_mb": 8192,
-  "vcpu_cores": 6,
+  "cores": 6,
   "target_fps": 60,
-  "fps_unlock": false
+  "gpu_backend": "vulkan",
+  "gapps": true,
+  "spoof_profile": "pixel8pro",
+  "description": "Genshin Impact — high-res, 60fps"
 }
 ```
 
-CLI flags always override profile values.
+```bash
+avm --profile genshin --image ~/.config/avm/images/android14-arm64-gapps/system.img
+```
 
 ---
 
-## Tech Stack
+## macOS App Bundle
 
-| Component | Technology |
-|---|---|
-| Base VM | [QEMU](https://www.qemu.org/) + Android goldfish kernel |
-| GPU | [gfxstream](https://android.googlesource.com/platform/hardware/google/gfxstream/) + [ANGLE](https://chromium.googlesource.com/angle/angle) |
-| Hypervisors | KVM (Linux) • HVF (macOS) • AEHD / WHPX (Windows) |
-| Input | SDL2, ADB `sendevent`, virtio-input |
-| Overlay UI | Dear ImGui |
-| Build | CMake 3.20+ + Ninja |
-| Language | C++17 (core, GPU, input) |
+```bash
+cmake --build build -j$(sysctl -n hw.logicalcpu)
+bash packaging/macos/build-app-bundle.sh
+cp -r dist/AVM.app /Applications/
+```
+
+---
+
+## Building from Source
+
+```bash
+# macOS (one command)
+bash scripts/bootstrap-macos.sh
+
+# Manual
+cmake -B build -G Ninja \
+    -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+    -DAVM_ENABLE_HVF=ON \
+    -DAVM_ENABLE_MOLTENVK=ON
+cmake --build build -j$(sysctl -n hw.logicalcpu)
+codesign --entitlements avm.entitlements --force -s - ./build/avm
+```
 
 ---
 
 ## Roadmap
 
-### ✅ Phase 1 — Foundation
-- [x] QEMU-based Android VM boots to home screen
-- [x] Hardware virtualization (KVM / HVF / AEHD / WHPX)
-- [x] Android system image integration + validation
-- [x] ADB connectivity
-
-### ✅ Phase 2 — GPU Acceleration
-- [x] virtio-gpu device in QEMU args
-- [x] Host-side Vulkan / OpenGL renderer selection
-- [x] ANGLE OpenGL ES → Vulkan translation layer
-- [ ] gfxstream guest driver (in progress)
-- [ ] 60 fps stable rendering in test game
-
-### ✅ Phase 3 — Input Bridge
-- [x] SDL2 keyboard/mouse → touch event bridge
-- [x] Keymapper UI with game profile support
-- [x] FPS counter overlay
-- [x] Multi-instance foundation
-
-### ✅ Phase 4 — Gamepad & virtio-input
-- [x] SDL2 gamepad → Android input
-- [x] ADB sendevent injector
-- [x] virtio-input socket transport (Linux/macOS)
-- [x] Platform build guards (Windows/macOS/Linux)
-
-### ✅ Phase 5 — Version Selector & Profiles
-- [x] Android version selector (`--android 10`–`15`, API levels, code names)
-- [x] Image validation + arch compatibility check
-- [x] RAM/vCPU auto-tuning from version metadata
-- [x] Per-game JSON profile system
-- [x] Precise FPS limiter (sleep+spin hybrid)
-- [x] `--fps-unlock` flag
-- [x] macOS bootstrap script with auto codesign
-- [x] Windows bootstrap PowerShell script
-
-### 🟡 Phase 6 — Packaging & Distribution *(next)*
-- [ ] `avm-image-pull` CLI tool to fetch AOSP images automatically
-- [ ] Linux AppImage / Flatpak packaging
-- [ ] Windows NSIS/WiX installer
-- [ ] macOS `.app` bundle with Info.plist + entitlements
-- [ ] Auto-updater channel
-
----
-
-## Prerequisites by Platform
-
-| Platform | Requirement |
-|---|---|
-| **Linux** | KVM-capable kernel, `libvirt`, `qemu-system-x86_64` or `qemu-system-aarch64` |
-| **macOS** | macOS 11+, Xcode CLI tools, `brew install qemu cmake ninja sdl2` |
-| **Windows** | Windows 10 1803+, WHPX or AEHD enabled, Visual Studio 2022, vcpkg |
-| **All** | CMake 3.20+, Ninja, C++17 compiler |
-
----
-
-## References
-
-- [Android Emulator (AOSP)](https://android.googlesource.com/platform/external/qemu/)
-- [gfxstream](https://android.googlesource.com/platform/hardware/google/gfxstream/)
-- [ANGLE](https://chromium.googlesource.com/angle/angle)
-- [QEMU](https://www.qemu.org/)
-- [Apple Hypervisor.framework](https://developer.apple.com/documentation/hypervisor)
-- [Android Emulator Hypervisor Driver (AEHD)](https://github.com/google/android-emulator-hypervisor-driver)
-- Trinity: Near-Native Android Emulation (OSDI 2022)
+- [x] Phase 1 — QEMU base + HVF/KVM/WHPX virtualization
+- [x] Phase 2 — SDL2 window + virtio-input (keyboard, mouse, gamepad)
+- [x] Phase 3 — GPU forwarding (MoltenVK/gfxstream host side)
+- [x] Phase 4 — Overlay HUD, keymapper, ADB bridge
+- [x] Phase 5 — Per-game profiles, FPS limiter, Android version selector
+- [x] Phase 6 — GApps (Play Store), SafetyNet spoof, image-pull CLI, macOS .app bundle
+- [ ] Phase 7 — Windows/Linux installers, auto-update, gfxstream guest driver
 
 ---
 
 ## License
 
-MIT License — see [LICENSE](LICENSE) for details.
+MIT — see [LICENSE](LICENSE).

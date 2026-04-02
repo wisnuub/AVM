@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <!-- Background -->
+  <rect width="512" height="512" rx="110" fill="#1a1a2e"/>
+  <!-- Android body -->
+  <rect x="156" y="210" width="200" height="190" rx="30" fill="#00d4aa"/>
+  <!-- Android head / screen -->
+  <rect x="176" y="140" width="160" height="110" rx="20" fill="#00d4aa"/>
+  <!-- Eyes -->
+  <circle cx="224" cy="188" r="12" fill="#1a1a2e"/>
+  <circle cx="288" cy="188" r="12" fill="#1a1a2e"/>
+  <!-- Antenna left -->
+  <line x1="220" y1="140" x2="200" y2="108" stroke="#00d4aa" stroke-width="10" stroke-linecap="round"/>
+  <circle cx="196" cy="103" r="8" fill="#00d4aa"/>
+  <!-- Antenna right -->
+  <line x1="292" y1="140" x2="312" y2="108" stroke="#00d4aa" stroke-width="10" stroke-linecap="round"/>
+  <circle cx="316" cy="103" r="8" fill="#00d4aa"/>
+  <!-- Left arm -->
+  <rect x="116" y="220" width="40" height="120" rx="20" fill="#00d4aa"/>
+  <!-- Right arm -->
+  <rect x="356" y="220" width="40" height="120" rx="20" fill="#00d4aa"/>
+  <!-- Left leg -->
+  <rect x="186" y="380" width="44" height="80" rx="22" fill="#00d4aa"/>
+  <!-- Right leg -->
+  <rect x="282" y="380" width="44" height="80" rx="22" fill="#00d4aa"/>
+  <!-- PC chip / lightning bolt overlay -->
+  <path d="M248 235 L228 275 H252 L232 315 L284 265 H258 L278 235 Z" fill="#1a1a2e" opacity="0.6"/>
+</svg>
