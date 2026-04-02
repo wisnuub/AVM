@@ -1,5 +1,6 @@
 #pragma once
 #include <string>
+#include "android_version.h"
 
 namespace avm {
 
@@ -11,6 +12,7 @@ enum class GpuBackend {
 
 enum class HypervisorBackend {
     KVM,    // Linux
+    HVF,    // macOS Hypervisor.framework
     AEHD,   // Windows (Android Emulator Hypervisor Driver)
     WHPX,   // Windows Hypervisor Platform
     HAXM,   // Intel HAXM (legacy)
@@ -18,29 +20,33 @@ enum class HypervisorBackend {
 };
 
 struct Config {
-    // VM resources
+    // ---- VM resources ----
     std::string system_image_path;
     std::string data_partition_path;
     int         memory_mb   = 4096;
     int         vcpu_cores  = 4;
 
-    // Display
+    // ---- Android version ----
+    AndroidVersion  android_version    = AndroidVersion::Auto;
+    uint8_t         android_api_level  = 0;  // filled by ImageManager
+
+    // ---- Display ----
     int  display_width  = 1280;
     int  display_height = 720;
     int  target_fps     = 60;
-    bool vsync_override = true;  // unlock FPS beyond Android vsync cap
+    bool vsync_override = true;
 
-    // GPU
+    // ---- GPU ----
     GpuBackend gpu_backend = GpuBackend::Vulkan;
 
-    // Hypervisor
-    bool             hardware_accel      = true;
-    HypervisorBackend hypervisor_backend = HypervisorBackend::KVM;
+    // ---- Hypervisor ----
+    bool              hardware_accel      = true;
+    HypervisorBackend hypervisor_backend  = HypervisorBackend::None;
 
-    // Input
+    // ---- Input ----
     std::string keymapper_profile;  // path to .json keymapper profile
 
-    // Networking
+    // ---- Networking ----
     bool enable_adb = true;
     int  adb_port   = 5554;
 };
