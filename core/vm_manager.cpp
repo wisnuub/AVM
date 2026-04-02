@@ -769,6 +769,7 @@ bool VmManager::setup_sdk_avd(const std::string& sdk_root,
     write_file(ini_path, ini.str());
 
     // Write config.ini
+    // Landscape 1920×1080 @ 240 dpi — games expect landscape + readable DPI
     std::ostringstream cfg;
     cfg << "AvdId=" << avd_name << "\n"
         << "PlayStore.enabled=true\n"
@@ -778,11 +779,15 @@ bool VmManager::setup_sdk_avd(const std::string& sdk_root,
         << "hw.device.name=pixel_6\n"
         << "hw.gpu.enabled=yes\n"
         << "hw.gpu.mode=auto\n"
+        << "hw.lcd.width=1920\n"
+        << "hw.lcd.height=1080\n"
+        << "hw.lcd.density=240\n"
+        << "hw.initialOrientation=landscape\n"
         << "hw.ramSize=" << config_.memory_mb << "\n"
         << "image.sysdir.1=" << rel_image_dir << "\n"
         << "showDeviceFrame=no\n"
         << "skin.dynamic=yes\n"
-        << "skin.name=1080x2340\n"
+        << "skin.name=1920x1080\n"
         << "skin.path=_no_skin\n"
         << "tag.display=Google Play\n"
         << "tag.id=google_apis_playstore\n";
@@ -799,8 +804,8 @@ std::vector<std::string> VmManager::build_sdk_emulator_args(const std::string& a
     args.push_back("-no-boot-anim");
     args.push_back("-no-audio");
     args.push_back("-no-metrics");
-    // ADB port forwarding
-    args.push_back("-port");        args.push_back(std::to_string(config_.adb_port - 1));
+    // -port sets the console port; ADB connects on port+1 (serial = emulator-5554, ADB = 5555)
+    args.push_back("-port");        args.push_back("5554");
     return args;
 }
 
