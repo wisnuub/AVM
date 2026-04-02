@@ -2,6 +2,9 @@
 #include "avm/core/vm_manager.h"
 #include <iostream>
 #include <fstream>
+#if AVM_OS_MACOS
+#include <sys/sysctl.h>
+#endif
 
 // This file supplements vm_manager.cpp with macOS HVF detection.
 // The main detect_hypervisor() lives in vm_manager.cpp but only covers
@@ -17,11 +20,6 @@ namespace avm {
 
 #if AVM_OS_MACOS
 bool query_hvf_max_vcpus(int& out_max) {
-    // Hypervisor.framework does not expose a direct API for max vCPU count.
-    // Practical limit on Apple Silicon is 16 (matches the physical core count).
-    // We use hw.logicalcpu as a safe upper bound.
-    out_max = 16;
-#  include <sys/sysctl.h>
     int ncpu = 4;
     size_t len = sizeof(ncpu);
     sysctlbyname("hw.logicalcpu", &ncpu, &len, nullptr, 0);

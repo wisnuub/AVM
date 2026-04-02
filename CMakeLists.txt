@@ -97,13 +97,16 @@ include_directories(${CMAKE_SOURCE_DIR}/include)
 
 # ── Subdirectories ──────────────────────────────────────────────────────────
 add_subdirectory(core)
-add_subdirectory(gpu)
-add_subdirectory(input)
-add_subdirectory(overlay)
+# gpu / input / overlay are optional — they provide a custom gfxstream/input
+# pipeline layered on top of QEMU. QEMU's built-in Cocoa/SDL display and input
+# drivers are used instead until those pipelines are complete.
+# add_subdirectory(gpu)
+# add_subdirectory(input)
+# add_subdirectory(overlay)
 
 # ── Main executable ─────────────────────────────────────────────────────────
 add_executable(avm src/main.cpp)
-target_link_libraries(avm PRIVATE avm_core avm_gpu avm_input avm_overlay)
+target_link_libraries(avm PRIVATE avm_core)
 
 # macOS: link Hypervisor.framework and Metal
 if(AVM_PLATFORM_MACOS)

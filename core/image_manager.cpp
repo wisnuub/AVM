@@ -5,6 +5,9 @@
 #include <fstream>
 #include <iomanip>
 #include <cstring>
+#if !AVM_OS_WINDOWS
+#  include <sys/stat.h>
+#endif
 
 namespace avm {
 
@@ -46,13 +49,42 @@ static AndroidVersion detect_version_from_image(const std::string& /*path*/) {
 // ImageManager::validate
 // -----------------------------------------------------------------------
 bool ImageManager::validate(const std::string& path, ImageInfo& out) {
+    out.path = path;
+
+#if !AVM_OS_WINDOWS
+    // ── SDK image directory mode ─────────────────────────────────────────────
+    // When the user passes a directory (e.g. the arm64-v8a system-images dir),
+    // we trust the Android SDK emulator to read system.img / kernel-ranchu from
+    // it directly.  No file-level validation needed.
+    {
+        struct stat st;
+        if (stat(path.c_str(), &st) == 0 && S_ISDIR(st.st_mode)) {
+            out.size_bytes  = 0;
+            out.is_writable = false;
+            out.version     = detect_version_from_image(path);
+
+            if (path.find("arm64")  != std::string::npos ||
+                path.find("aarch64") != std::string::npos)
+                out.arch = "arm64";
+            else if (path.find("x86_64") != std::string::npos ||
+                     path.find("x86")    != std::string::npos)
+                out.arch = "x86_64";
+            else
+                out.arch = "arm64"; // default for SDK dirs
+
+            std::cout << "[ImageManager] SDK image directory detected: " << path << "\n";
+            return true;
+        }
+    }
+#endif
+
+    // ── Single image file mode ────────────────────────────────────────────────
     std::ifstream f(path, std::ios::binary | std::ios::ate);
     if (!f.is_open()) {
         std::cerr << "[ImageManager] Cannot open image: " << path << "\n";
         return false;
     }
 
-    out.path = path;
     out.size_bytes = (uint64_t)f.tellg();
 
     if (out.size_bytes < 4096) {

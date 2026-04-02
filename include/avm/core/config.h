@@ -46,6 +46,12 @@ struct Config {
     // ---- Input ----
     std::string keymapper_profile;  // path to .json keymapper profile
 
+    // ---- Boot (kernel-based images) ----
+    std::string kernel_path;         // optional: path to kernel image (e.g. kernel-ranchu-64)
+    std::string initrd_path;         // optional: path to ramdisk/initrd
+    std::string kernel_cmdline;      // optional: kernel command-line arguments
+    std::string pflash_code_path;    // optional: UEFI firmware (.fd); auto-detected if empty
+
     // ---- Networking ----
     bool enable_adb = true;
     int  adb_port   = 5554;

@@ -11,6 +11,9 @@ target_include_directories(avm_overlay PUBLIC
 )
 
 target_link_libraries(avm_overlay PUBLIC SDL2::SDL2)
+get_target_property(_sdl2_inc SDL2::SDL2 INTERFACE_INCLUDE_DIRECTORIES)
+get_filename_component(_sdl2_parent "${_sdl2_inc}" DIRECTORY)
+target_include_directories(avm_overlay SYSTEM PUBLIC "${_sdl2_parent}")
 
 # SDL2_ttf is optional: FPS overlay degrades to a simple console counter without it
 if(SDL2_ttf_FOUND)

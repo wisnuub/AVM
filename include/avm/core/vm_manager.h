@@ -13,9 +13,6 @@
 
 namespace avm {
 
-class GpuRenderer;
-class InputBridge;
-
 /**
  * VmManager — top-level VM lifecycle controller.
  *
@@ -70,6 +67,18 @@ private:
     bool launch_qemu(const std::string& qemu_bin,
                      const std::vector<std::string>& args);
 
+    // --- Android SDK emulator ---
+    std::string find_android_emulator();
+    std::string get_sdk_root(const std::string& emulator_path);
+    bool setup_sdk_avd(const std::string& sdk_root,
+                       const std::string& image_dir,
+                       const std::string& avd_home,
+                       const std::string& avd_name);
+    std::vector<std::string> build_sdk_emulator_args(const std::string& avd_name);
+    bool launch_with_env(const std::string& bin,
+                         const std::vector<std::string>& args,
+                         const std::vector<std::pair<std::string,std::string>>& env_vars);
+
     // --- QMP (QEMU Machine Protocol) ---
     bool     qmp_connect();
     void     qmp_disconnect();
@@ -87,8 +96,6 @@ private:
 
     Config config_;
     HypervisorBackend active_hypervisor_ = HypervisorBackend::None;
-    std::unique_ptr<GpuRenderer> gpu_renderer_;
-    std::unique_ptr<InputBridge> input_bridge_;
 
     // QMP socket
     int qmp_port_ = 4444;

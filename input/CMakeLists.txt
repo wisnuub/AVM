@@ -17,6 +17,9 @@ target_include_directories(avm_input PUBLIC
 )
 
 target_link_libraries(avm_input PUBLIC SDL2::SDL2)
+get_target_property(_sdl2_inc SDL2::SDL2 INTERFACE_INCLUDE_DIRECTORIES)
+get_filename_component(_sdl2_parent "${_sdl2_inc}" DIRECTORY)
+target_include_directories(avm_input SYSTEM PUBLIC "${_sdl2_parent}")
 
 # Windows: link Winsock for ADB socket transport
 if(AVM_PLATFORM_WINDOWS)

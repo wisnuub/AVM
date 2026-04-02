@@ -18,8 +18,11 @@ target_include_directories(avm_gpu PUBLIC
     ${CMAKE_SOURCE_DIR}/include
 )
 
-# SDL2
+# SDL2 — also add parent of SDL2 include dir so <SDL2/SDL.h> resolves correctly
 target_link_libraries(avm_gpu PUBLIC SDL2::SDL2)
+get_target_property(_sdl2_inc SDL2::SDL2 INTERFACE_INCLUDE_DIRECTORIES)
+get_filename_component(_sdl2_parent "${_sdl2_inc}" DIRECTORY)
+target_include_directories(avm_gpu SYSTEM PUBLIC "${_sdl2_parent}")
 
 # Vulkan
 if(AVM_ENABLE_VULKAN AND Vulkan_FOUND)

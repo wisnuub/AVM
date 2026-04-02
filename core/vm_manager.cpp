@@ -65,6 +65,83 @@ bool VmManager::initialize() {
 }
 
 int VmManager::run() {
+    // ── Try Android SDK emulator first ──────────────────────────────────────
+#if !AVM_OS_WINDOWS
+    {
+        std::string sdk_emu = find_android_emulator();
+        if (!sdk_emu.empty()) {
+            std::string sdk_root = get_sdk_root(sdk_emu);
+
+            // Determine the image directory
+            std::string image_dir = config_.system_image_path;
+#if !AVM_OS_WINDOWS
+            {
+                struct stat st;
+                if (stat(image_dir.c_str(), &st) == 0 && !S_ISDIR(st.st_mode)) {
+                    // Strip filename — use parent directory
+                    auto slash = image_dir.rfind('/');
+                    if (slash != std::string::npos)
+                        image_dir = image_dir.substr(0, slash);
+                }
+            }
+#endif
+
+            // AVD home: prefer ~/.avd
+            std::string avd_home;
+            const char* home_env = getenv("HOME");
+            if (home_env) avd_home = std::string(home_env) + "/.avd";
+            else avd_home = "/tmp/avm_avd";
+
+            const std::string avd_name = "avm_nunu";
+
+            std::cout << "[VmManager] Android SDK emulator found: " << sdk_emu << "\n";
+            std::cout << "[VmManager] SDK root: " << sdk_root << "\n";
+            std::cout << "[VmManager] Image dir: " << image_dir << "\n";
+
+            if (!setup_sdk_avd(sdk_root, image_dir, avd_home, avd_name)) {
+                std::cerr << "[VmManager] AVD setup failed — falling back to QEMU.\n";
+            } else {
+                auto args = build_sdk_emulator_args(avd_name);
+
+                std::cout << "[VmManager] Launching Android emulator:\n  " << sdk_emu;
+                for (auto& a : args) std::cout << " " << a;
+                std::cout << "\n\n";
+
+                std::vector<std::pair<std::string,std::string>> env_vars = {
+                    {"ANDROID_SDK_ROOT",   sdk_root},
+                    {"ANDROID_HOME",       sdk_root},
+                    {"ANDROID_AVD_HOME",   avd_home},
+                };
+
+                if (!launch_with_env(sdk_emu, args, env_vars)) {
+                    std::cerr << "[VmManager] Failed to launch Android emulator.\n";
+                    return 1;
+                }
+
+                running_ = true;
+                std::cout << "[VmManager] Android emulator started.\n";
+
+                if (config_.enable_adb) {
+                    std::cout << "[VmManager] Waiting for ADB (port " << config_.adb_port << ")...\n";
+                    if (wait_for_adb(120))
+                        std::cout << "[VmManager] ADB ready.\n";
+                    else
+                        std::cerr << "[VmManager] ADB timeout (VM may still be booting).\n";
+                }
+
+                std::cout << "[VmManager] VM running. Ctrl+C to stop.\n";
+                wait_for_exit();
+                running_ = false;
+                std::cout << "[VmManager] Android emulator exited.\n";
+                return 0;
+            }
+        } else {
+            std::cout << "[VmManager] Android SDK emulator not found — using QEMU.\n";
+        }
+    }
+#endif
+
+    // ── Fall back to standard QEMU ───────────────────────────────────────────
     std::string qemu_bin = find_qemu_binary();
     if (qemu_bin.empty()) {
         std::cerr << "[VmManager] QEMU not found. Install it:\n"
@@ -162,6 +239,21 @@ bool VmManager::validate_image() {
         std::cerr << "[VmManager] No system image (--image).\n";
         return false;
     }
+#if !AVM_OS_WINDOWS
+    struct stat st;
+    if (stat(config_.system_image_path.c_str(), &st) != 0) {
+        std::cerr << "[VmManager] Image not found: " << config_.system_image_path << "\n";
+        return false;
+    }
+    if (S_ISDIR(st.st_mode)) {
+        // Directory mode — Android SDK image directory (contains system.img, kernel-ranchu, etc.)
+        std::cout << "[VmManager] Image dir OK: " << config_.system_image_path << "\n";
+        return true;
+    }
+    std::cout << "[VmManager] Image file OK: " << config_.system_image_path
+              << " (" << (st.st_size / 1024 / 1024) << " MB)\n";
+    return true;
+#else
     std::ifstream f(config_.system_image_path);
     if (!f.good()) {
         std::cerr << "[VmManager] Image not found: " << config_.system_image_path << "\n";
@@ -176,6 +268,7 @@ bool VmManager::validate_image() {
     std::cout << "[VmManager] Image OK: " << config_.system_image_path
               << " (" << (size / 1024 / 1024) << " MB)\n";
     return true;
+#endif
 }
 
 // ============================================================
@@ -331,14 +424,57 @@ std::vector<std::string> VmManager::build_qemu_args() {
                        ",format=raw,if=virtio");
     }
 
-    // --- GPU ---
+    // --- UEFI firmware (ARM64 virt machine requires this) ---
+#if AVM_OS_MACOS && AVM_ARCH_ARM64
+    {
+        std::string pflash = config_.pflash_code_path;
+        if (pflash.empty()) {
+            // Auto-detect Homebrew QEMU firmware location
+            const char* candidates[] = {
+                "/opt/homebrew/share/qemu/edk2-aarch64-code.fd",
+                "/usr/local/share/qemu/edk2-aarch64-code.fd",
+                "/usr/share/qemu/edk2-aarch64-code.fd",
+            };
+            for (auto* p : candidates) {
+                struct stat st;
+                if (stat(p, &st) == 0) { pflash = p; break; }
+            }
+        }
+        if (!pflash.empty()) {
+            args.push_back("-bios"); args.push_back(pflash);
+        }
+    }
+#endif
+
+    // --- Kernel / initrd (used with Android goldfish/ranchu images) ---
+    if (!config_.kernel_path.empty()) {
+        args.push_back("-kernel"); args.push_back(config_.kernel_path);
+    }
+    if (!config_.initrd_path.empty()) {
+        args.push_back("-initrd"); args.push_back(config_.initrd_path);
+    }
+    if (!config_.kernel_cmdline.empty()) {
+        args.push_back("-append"); args.push_back(config_.kernel_cmdline);
+    }
+
+    // --- GPU / Display ---
+    // Homebrew QEMU on macOS ships with Cocoa display (not SDL).
+    // SDL is available on Windows/Linux builds.
+#if AVM_OS_MACOS
+    args.push_back("-device");  args.push_back("virtio-gpu-pci");
+    args.push_back("-display"); args.push_back("cocoa,show-cursor=on");
+#elif AVM_OS_WINDOWS
+    args.push_back("-device");  args.push_back("virtio-gpu-gl-pci");
+    args.push_back("-display"); args.push_back("sdl,gl=on");
+#else
     if (config_.gpu_backend != GpuBackend::Software) {
-        args.push_back("-device"); args.push_back("virtio-gpu-gl-pci");
+        args.push_back("-device");  args.push_back("virtio-gpu-gl-pci");
         args.push_back("-display"); args.push_back("sdl,gl=on");
     } else {
-        args.push_back("-device"); args.push_back("virtio-vga");
+        args.push_back("-device");  args.push_back("virtio-vga");
         args.push_back("-display"); args.push_back("sdl");
     }
+#endif
 
     // --- Input ---
     args.push_back("-device"); args.push_back("virtio-mouse-pci");
@@ -352,18 +488,14 @@ std::vector<std::string> VmManager::build_qemu_args() {
                    std::to_string(config_.adb_port) + "-:5555");
     args.push_back("-device"); args.push_back("virtio-net-pci,netdev=net0");
 
-    // --- Audio ---
-    args.push_back("-audiodev"); args.push_back("none,id=audio0");
-
     // --- QMP ---
     args.push_back("-qmp");
     args.push_back("tcp:127.0.0.1:" + std::to_string(qmp_port_) +
                    ",server=on,wait=off");
 
-    // --- Serial / monitor ---
+    // --- Serial ---
     args.push_back("-serial");  args.push_back("stdio");
     args.push_back("-monitor"); args.push_back("none");
-    args.push_back("-nodefaults");
 
     return args;
 }
@@ -545,5 +677,167 @@ bool VmManager::adb_shell(const std::string& cmd, std::string& output) {
 #endif
     return true;
 }
+
+// ============================================================
+//  Android SDK Emulator
+// ============================================================
+
+#if !AVM_OS_WINDOWS
+std::string VmManager::find_android_emulator() {
+    std::vector<std::string> candidates;
+
+    // Check env vars first
+    const char* sdk_env = getenv("ANDROID_SDK_ROOT");
+    if (!sdk_env) sdk_env = getenv("ANDROID_HOME");
+    if (sdk_env)
+        candidates.push_back(std::string(sdk_env) + "/emulator/emulator");
+
+    // Check home dir (macOS standard location)
+    const char* home = getenv("HOME");
+    if (home) {
+        candidates.push_back(std::string(home) + "/Library/Android/sdk/emulator/emulator");
+        candidates.push_back(std::string(home) + "/Android/Sdk/emulator/emulator");
+    }
+
+    // Homebrew android-commandlinetools location
+    candidates.push_back("/opt/homebrew/share/android-commandlinetools/emulator/emulator");
+    candidates.push_back("/usr/local/share/android-commandlinetools/emulator/emulator");
+
+    for (auto& p : candidates) {
+        struct stat st;
+        if (stat(p.c_str(), &st) == 0 && (st.st_mode & S_IXUSR))
+            return p;
+    }
+    return {};
+}
+
+std::string VmManager::get_sdk_root(const std::string& emulator_path) {
+    // emulator_path is like /foo/bar/sdk/emulator/emulator
+    // SDK root is two levels up
+    auto slash1 = emulator_path.rfind('/');
+    if (slash1 == std::string::npos) return {};
+    auto slash2 = emulator_path.rfind('/', slash1 - 1);
+    if (slash2 == std::string::npos) return emulator_path.substr(0, slash1);
+    return emulator_path.substr(0, slash2);
+}
+
+static void write_file(const std::string& path, const std::string& content) {
+    std::ofstream f(path);
+    f << content;
+}
+
+static void mkdir_p(const std::string& path) {
+    // Create directory and parents (simple recursive approach)
+    for (size_t i = 1; i <= path.size(); ++i) {
+        if (i == path.size() || path[i] == '/') {
+            std::string sub = path.substr(0, i);
+            mkdir(sub.c_str(), 0755);
+        }
+    }
+}
+
+bool VmManager::setup_sdk_avd(const std::string& sdk_root,
+                               const std::string& image_dir,
+                               const std::string& avd_home,
+                               const std::string& avd_name) {
+    // Compute image.sysdir.1 — path relative to sdk_root
+    std::string rel_image_dir = image_dir;
+    if (image_dir.find(sdk_root) == 0) {
+        rel_image_dir = image_dir.substr(sdk_root.size());
+        // Strip leading slash
+        if (!rel_image_dir.empty() && rel_image_dir[0] == '/')
+            rel_image_dir = rel_image_dir.substr(1);
+        // Ensure trailing slash
+        if (!rel_image_dir.empty() && rel_image_dir.back() != '/')
+            rel_image_dir += '/';
+    }
+
+    // Paths
+    std::string avd_dir    = avd_home + "/" + avd_name + ".avd";
+    std::string ini_path   = avd_home + "/" + avd_name + ".ini";
+    std::string cfg_path   = avd_dir + "/config.ini";
+
+    mkdir_p(avd_home);
+    mkdir_p(avd_dir);
+
+    // Write top-level .ini
+    std::ostringstream ini;
+    ini << "avd.ini.encoding=UTF-8\n"
+        << "path=" << avd_dir << "\n"
+        << "path.rel=avd/" << avd_name << ".avd\n"
+        << "target=android-34\n";
+    write_file(ini_path, ini.str());
+
+    // Write config.ini
+    std::ostringstream cfg;
+    cfg << "AvdId=" << avd_name << "\n"
+        << "PlayStore.enabled=true\n"
+        << "abi.type=arm64-v8a\n"
+        << "avd.ini.encoding=UTF-8\n"
+        << "hw.cpu.arch=arm64\n"
+        << "hw.device.name=pixel_6\n"
+        << "hw.gpu.enabled=yes\n"
+        << "hw.gpu.mode=auto\n"
+        << "hw.ramSize=" << config_.memory_mb << "\n"
+        << "image.sysdir.1=" << rel_image_dir << "\n"
+        << "showDeviceFrame=no\n"
+        << "skin.dynamic=yes\n"
+        << "skin.name=1080x2340\n"
+        << "skin.path=_no_skin\n"
+        << "tag.display=Google Play\n"
+        << "tag.id=google_apis_playstore\n";
+    write_file(cfg_path, cfg.str());
+
+    std::cout << "[VmManager] AVD written to: " << avd_home << "\n";
+    std::cout << "[VmManager] image.sysdir.1=" << rel_image_dir << "\n";
+    return true;
+}
+
+std::vector<std::string> VmManager::build_sdk_emulator_args(const std::string& avd_name) {
+    std::vector<std::string> args;
+    args.push_back("-avd");         args.push_back(avd_name);
+    args.push_back("-no-boot-anim");
+    args.push_back("-no-audio");
+    args.push_back("-no-metrics");
+    // ADB port forwarding
+    args.push_back("-port");        args.push_back(std::to_string(config_.adb_port - 1));
+    return args;
+}
+
+bool VmManager::launch_with_env(const std::string& bin,
+                                 const std::vector<std::string>& args,
+                                 const std::vector<std::pair<std::string,std::string>>& env_vars) {
+    pid_t pid = fork();
+    if (pid < 0) {
+        std::cerr << "[VmManager] fork() failed: " << strerror(errno) << "\n";
+        return false;
+    }
+    if (pid == 0) {
+        // Child: set env vars then exec
+        for (auto& [k, v] : env_vars)
+            setenv(k.c_str(), v.c_str(), 1);
+
+        std::vector<const char*> argv;
+        argv.push_back(bin.c_str());
+        for (auto& a : args) argv.push_back(a.c_str());
+        argv.push_back(nullptr);
+        execvp(bin.c_str(), const_cast<char* const*>(argv.data()));
+        std::cerr << "[VmManager] execvp failed: " << strerror(errno) << "\n";
+        _exit(1);
+    }
+    qemu_pid_ = pid;
+    std::cout << "[VmManager] Emulator PID: " << pid << "\n";
+    return true;
+}
+#else
+// Windows stubs — SDK emulator path is Unix-only for now
+std::string VmManager::find_android_emulator() { return {}; }
+std::string VmManager::get_sdk_root(const std::string&) { return {}; }
+bool VmManager::setup_sdk_avd(const std::string&, const std::string&,
+                               const std::string&, const std::string&) { return false; }
+std::vector<std::string> VmManager::build_sdk_emulator_args(const std::string&) { return {}; }
+bool VmManager::launch_with_env(const std::string&, const std::vector<std::string>&,
+                                 const std::vector<std::pair<std::string,std::string>>&) { return false; }
+#endif
 
 } // namespace avm

@@ -35,7 +35,7 @@ static void print_usage(const char* prog) {
         << "Usage: " << prog << " [options]\n\n"
 
         << "  Image & Version\n"
-        << "    --image <path>        Path to Android system image (.img)\n"
+        << "    --image <path>        Path to Android system image (.img or SDK dir)\n"
         << "    --android <ver>       Target Android version\n"
         << "                          Examples: 13, android14, API33, tiramisu\n"
         << "    --list-versions       Print supported Android versions and exit\n\n"
@@ -55,6 +55,9 @@ static void print_usage(const char* prog) {
 
         << "  Advanced\n"
         << "    --no-accel            Disable HW virtualization (slow, for testing)\n"
+        << "    --kernel <path>       Kernel image (for custom goldfish/ranchu images)\n"
+        << "    --initrd <path>       Ramdisk/initrd image\n"
+        << "    --cmdline <args>      Kernel command-line arguments\n"
         << "    --help                Show this message\n\n";
 }
 
@@ -133,6 +136,15 @@ int main(int argc, char* argv[]) {
         }
         else if (arg == "--no-accel") {
             config.hardware_accel = false;
+        }
+        else if (arg == "--kernel" && i + 1 < argc) {
+            config.kernel_path = argv[++i];
+        }
+        else if (arg == "--initrd" && i + 1 < argc) {
+            config.initrd_path = argv[++i];
+        }
+        else if (arg == "--cmdline" && i + 1 < argc) {
+            config.kernel_cmdline = argv[++i];
         }
         else {
             std::cerr << "[AVM] Unknown option: " << arg << "\n";
